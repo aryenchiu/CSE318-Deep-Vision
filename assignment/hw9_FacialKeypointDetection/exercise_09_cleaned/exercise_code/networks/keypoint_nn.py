@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
+from torch.nn.modules.pooling import MaxPool2d
 
 class KeypointModel(pl.LightningModule):
     """Facial keypoint detection model"""
@@ -13,7 +14,7 @@ class KeypointModel(pl.LightningModule):
             arguments), otherwise it might not work on the submission server
         """
         super(KeypointModel, self).__init__()
-        self.hparams = hparams
+        self.save_hyperparameters(hparams)
         ########################################################################
         # TODO: Define all the layers of your CNN, the only requirements are:  #
         # 1. The network takes in a batch of images of shape (Nx1x96x96)       #
@@ -26,9 +27,43 @@ class KeypointModel(pl.LightningModule):
         # and other layers (such as dropout or batch normalization) to avoid   #
         # overfitting.                                                         #
         ########################################################################
+        def initialize_weights(m):
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_uniform_(m.weight.data,nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias.data, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight.data)
+                nn.init.constant_(m.bias.data, 0)
 
+        self.cnn = nn.Sequential(
+            nn.Conv2d(1, 16, 3, 1, 1),     # [16, 96, 96]
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2, 0),         # [16, 48, 48]
 
-        pass
+            nn.Conv2d(16, 32, 3, 1, 1),    # [32, 48, 48]
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2, 0),         # [32, 24, 24]
+
+            nn.Conv2d(32, 64, 3, 1, 1),    # [64, 24, 24]
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2, 0),         # [64, 12, 12]
+
+            nn.Conv2d(64, 128, 3, 1, 1),   # [128, 12, 12]
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2, 0),         # [128, 6, 6]
+            nn.Dropout2d(0.5),
+
+            nn.Flatten()
+        )
+        self.fc = nn.Sequential(
+            nn.Linear(128 * 6 * 6, 256),
+            nn.ReLU(),
+            nn.Linear(256, 30)
+        )
+
+        self.cnn.apply(initialize_weights)
+        self.fc.apply(initialize_weights)
 
         ########################################################################
         #                           END OF YOUR CODE                           #
@@ -45,8 +80,8 @@ class KeypointModel(pl.LightningModule):
         # corresponding predicted keypoints                                    #
         ########################################################################
 
-
-        pass
+        out = self.cnn(x)
+        x = self.fc(out)
 
         ########################################################################
         #                           END OF YOUR CODE                           #
